@@ -9,6 +9,29 @@ from model.wrn  import WideResNet
 import torch
 import torch.optim as optim
 from torch.utils.data   import DataLoader
+from torch.utils.tensorboard import SummaryWriter
+
+
+class PseudoLabelledDataset(torch.utils.data.Dataset):
+    def __init__(self) -> None:
+        super().__init__()
+        self.data = None
+        self.targets = None
+
+    def __len__(self) -> int:
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        return self.data[idx], self.targets[idx]
+
+    def append(self, data, target):
+        if self.data is None:
+            self.data = data.detach().clone()
+            self.targets = target.detach().clone()
+        else:
+            self.data = torch.concat([self.data, data.detach().clone()])
+            self.targets = torch.concat([self.targets, target.detach().clone()])
+
 
 
 def main(args):
@@ -23,6 +46,8 @@ def main(args):
     args.epoch = math.ceil(args.total_iter / args.iter_per_epoch)
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    writer = SummaryWriter(log_dir=args.dataout)
 
     labeled_loader      = iter(DataLoader(labeled_dataset, 
                                     batch_size = args.train_batch, 
@@ -44,9 +69,13 @@ def main(args):
     ############################################################################
     # TODO: SUPPLY your code
     ############################################################################
+
+    optimiser = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
+    criterion = torch.nn.CrossEntropyLoss()
     
     for epoch in range(args.epoch):
         model.train()
+        pseudo_labelled = PseudoLabelledDataset()
         for i in range(args.iter_per_epoch):
             try:
                 x_l, y_l    = next(labeled_loader)
@@ -71,7 +100,24 @@ def main(args):
             ####################################################################
             # TODO: SUPPLY your code
             ####################################################################
-            
+            optimiser.zero_grad()
+
+            outputs = model(x_l)
+            loss_labelled = criterion(outputs, y_l)
+            loss_labelled.backward()
+            optimiser.step()
+
+            writer.add_scalar('loss/train_labelled', loss_labelled, epoch*args.iter_per_epoch+i)
+
+            with torch.no_grad():
+                outputs = model(x_ul)
+                pseudo_x = x_ul[(outputs >= args.threshold).any(axis=1)]
+                _, pseudo_label = torch.max(outputs[(outputs >= args.threshold).any(axis=1)], axis=1)
+                pseudo_labelled.append(pseudo_x, pseudo_label)
+
+        labeled_dataset = torch.utils.data.ConcatDataset([labeled_dataset, pseudo_labelled])
+
+    writer.close()
 
 
 
@@ -104,7 +150,7 @@ if __name__ == "__main__":
                         help="Number of workers to launch during training")
     parser.add_argument('--threshold', type=float, default=0.95,
                         help='Confidence Threshold for pseudo labeling')
-    parser.add_argument("--dataout", type=str, default="./path/to/output/",
+    parser.add_argument("--dataout", type=str, default="./runs/",
                         help="Path to save log files")
     parser.add_argument("--model-depth", type=int, default=28,
                         help="model depth for wide resnet") 
