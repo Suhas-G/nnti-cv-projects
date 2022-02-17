@@ -155,3 +155,5 @@ cython_debug/
 !**/data/.keep
 **/runs/*
 !**/runs/.keep
+**/checkpoints/*
+!**/checkpoints/.keep
