@@ -37,8 +37,8 @@ class PseudoLabelledDataset(torch.utils.data.Dataset):
             self.data = data.detach().clone()
             self.targets = target.detach().clone()
         else:
-            self.data = torch.concat([self.data, data.detach().clone()])
-            self.targets = torch.concat([self.targets, target.detach().clone()])
+            self.data = torch.cat([self.data, data.detach().clone()])
+            self.targets = torch.cat([self.targets, target.detach().clone()])
 
 def create_validation_dataset(unlabelled_train, num_classes, size=1000):
     class_size = size // num_classes
