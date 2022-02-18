@@ -1,6 +1,6 @@
 universe                = docker
 docker_image            = dankazbek/nnti-2122-project
-arguments               = --iter-per-epoch 256 --total-iter 2560 --checkpoint-freq 2 --train-batch 128 --test-batch 128
+arguments               = --iter-per-epoch 512 --total-iter 5120 --checkpoint-freq 5 --train-batch 128 --test-batch 128
 executable              = main.py
 output                  = mnist_lenet.$(ClusterId).$(ProcId).ckpt
 error                   = out.$(ClusterId).$(ProcId).err

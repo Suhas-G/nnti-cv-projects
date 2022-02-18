@@ -27,6 +27,8 @@ class PseudoLabelledDataset(torch.utils.data.Dataset):
         self.targets = None
 
     def __len__(self) -> int:
+        if self.data is None:
+            return 0
         return len(self.data)
 
     def __getitem__(self, idx):
@@ -51,19 +53,18 @@ def create_validation_dataset(unlabelled_train, num_classes, size=1000):
     
     return Subset(unlabelled_train, validation_idx)
 
-
-def validate(model: torch.nn.Module, val_loader: DataLoader, 
+def test(model: torch.nn.Module, loader: DataLoader, 
             criterion: torch.nn.CrossEntropyLoss, device: torch.device):
     model.eval()
     val_loss = 0.0
     val_acc = 0.0
     with torch.no_grad():
-        for data, target in val_loader:
+        for data, target in loader:
             data, target = data.to(device), target.to(device)
             output = model(data)
             val_loss += criterion(output, target).item()
             val_acc += accuracy(output, target)[0]
-    return val_loss / len(val_loader), val_acc / len(val_loader)
+    return val_loss / len(loader), val_acc / len(loader)
 
 def get_params(args):
     return {
@@ -81,6 +82,23 @@ def get_params(args):
         'model_width': args.model_width
     }
 
+def get_next_batch(dataset, loader, batch_size, num_workers, shuffle=True):
+    try:
+        x, y = next(loader)
+    except StopIteration:
+        loader = iter(DataLoader(dataset, batch_size=batch_size, 
+                                shuffle=shuffle, num_workers=num_workers))
+        x, y = next(loader)
+
+    return x, y, loader
+
+def get_pseudo_loss_coeff(epoch, max_coeff, pre_trained, total_epochs):
+    if epoch < pre_trained:
+        return 0.0
+    elif epoch < total_epochs // 2:
+        return ((epoch - pre_trained) / ((total_epochs // 2) - pre_trained)) * max_coeff
+    else:
+        return max_coeff
 
 def main(args):
     if args.dataset == "cifar10":
@@ -91,7 +109,7 @@ def main(args):
         args.num_classes = 100
         labeled_dataset, unlabeled_dataset, test_dataset = get_cifar100(args, 
                                                                 args.datapath)
-
+    pseudo_labelled = PseudoLabelledDataset()
     validation_dataset = create_validation_dataset(unlabeled_dataset, args.num_classes, size=10000)
     args.epoch = math.ceil(args.total_iter / args.iter_per_epoch)
     
@@ -114,6 +132,7 @@ def main(args):
                                     num_workers=args.num_workers)
     val_loader          = DataLoader(validation_dataset, batch_size=args.test_batch,
                                     shuffle = True, num_workers=args.num_workers)
+    pseudo_loader       = None
     
     model       = WideResNet(args.model_depth, 
                                 args.num_classes, widen_factor=args.model_width)
@@ -135,57 +154,70 @@ def main(args):
     
     for epoch in range(start_epoch, start_epoch + args.epoch):
         model.train()
-        pseudo_labelled = PseudoLabelledDataset()
+        
         for i in range(args.iter_per_epoch):
-            try:
-                x_l, y_l    = next(labeled_loader)
-            except StopIteration:
-                labeled_loader      = iter(DataLoader(labeled_dataset, 
-                                            batch_size = args.train_batch, 
-                                            shuffle = True, 
-                                            num_workers=args.num_workers))
-                x_l, y_l    = next(labeled_loader)
-            
-            try:
-                x_ul, _     = next(unlabeled_loader)
-            except StopIteration:
-                unlabeled_loader    = iter(DataLoader(unlabeled_dataset, 
-                                            batch_size=args.train_batch,
-                                            shuffle = True, 
-                                            num_workers=args.num_workers))
-                x_ul, _     = next(unlabeled_loader)
-            
-            x_l, y_l    = x_l.to(device), y_l.to(device)
-            x_ul        = x_ul.to(device)
+
+            x_l, y_l, labeled_loader = get_next_batch(labeled_dataset, labeled_loader, 
+                                                        args.train_batch, args.num_workers)
+            x_ul, _, unlabeled_loader = get_next_batch(unlabeled_dataset, unlabeled_loader, 
+                                                        args.train_batch, args.num_workers)
+            x_l, y_l = x_l.to(device), y_l.to(device)
+            x_ul = x_ul.to(device)
+
+            if pseudo_loader is not None:
+                x_pseudo, y_pseudo, pseudo_loader = get_next_batch(pseudo_labelled, pseudo_loader, 
+                                                                    args.train_batch, args.num_workers)
+                x_pseudo, y_pseudo = x_pseudo.to(device), y_pseudo.to(device)
+
             ####################################################################
             # TODO: SUPPLY your code
             ####################################################################
             optimiser.zero_grad()
+            pseudo_loss = 0.0
+            outputs_labelled = model(x_l)
+            if pseudo_loader is not None:
+                outputs_pseudo_labelled = model(x_pseudo)
+                pseudo_loss = get_pseudo_loss_coeff(epoch, args.pseudo_loss_coeff, args.pre_train, start_epoch + args.epoch) * criterion(outputs_pseudo_labelled, y_pseudo)
 
-            outputs = model(x_l)
-            loss_labelled = criterion(outputs, y_l)
-            loss_labelled.backward()
+            loss_labelled = criterion(outputs_labelled, y_l)
+            total_loss = loss_labelled + pseudo_loss
+            total_loss.backward()
             optimiser.step()
 
             writer.add_scalar('loss/train_labelled', loss_labelled, epoch*args.iter_per_epoch+i)
+            writer.add_scalar('loss/pseudo_labelled', pseudo_loss, epoch*args.iter_per_epoch+i)
+            writer.add_scalar('loss/total', total_loss.item(), epoch*args.iter_per_epoch+i)
 
-            with torch.no_grad():
-                outputs = model(x_ul)
-                pseudo_x = x_ul[(outputs >= args.threshold).any(axis=1)]
-                _, pseudo_label = torch.max(outputs[(outputs >= args.threshold).any(axis=1)], axis=1)
-                pseudo_labelled.append(pseudo_x.cpu(), pseudo_label.cpu())
+            if epoch >= args.pre_train:
+                with torch.no_grad():
+                    outputs = model(x_ul)
+                    x_temp = x_ul[(outputs >= args.threshold).any(axis=1)]
+                    _, label_temp = torch.max(outputs[(outputs >= args.threshold).any(axis=1)], axis=1)
+                    pseudo_labelled.append(x_temp.cpu(), label_temp.cpu())
 
-        if epoch >= 1:
-            labeled_dataset = torch.utils.data.ConcatDataset([labeled_dataset, pseudo_labelled])
 
-        validation_loss, validation_accuracy = validate(model, val_loader, criterion, device)
+
+        if epoch >= args.pre_train and pseudo_loader is None:
+            print('Starting to use pseudo labelled data...')
+            pseudo_loader = iter(DataLoader(pseudo_labelled, batch_size=args.train_batch, 
+                                                shuffle=True, num_workers=args.num_workers))
+
+
+        validation_loss, validation_accuracy = test(model, val_loader, criterion, device)
         writer.add_scalar('loss/validation', validation_loss, epoch)
         writer.add_scalar('accuracy/validation', validation_accuracy, epoch)
 
+        writer.add_scalar('metrics/no_of_pseudo_labbeled', len(pseudo_labelled), epoch)
+
         scheduler.step()
-        if epoch == 0 or (epoch + 1) % args.checkpoint_freq == 0:
+        if epoch == 0 or (epoch + 1) % args.checkpoint_freq == 0 or epoch == args.epoch - 1:
             save_checkpoint(model, epoch, './checkpoints/{}/checkpoint_{}.pth'.format(current_time,epoch + 1),
                             optimiser = optimiser, params=get_params(args))
+    
+
+    test_loss, test_accuracy = test(model, test_loader, criterion, device)
+    writer.add_scalar('loss/test', test_loss, epoch)
+    writer.add_scalar('accuracy/test', test_accuracy, epoch)
     writer.close()
 
 
@@ -194,12 +226,30 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description="Pseudo labeling \
                                         of CIFAR10/100 with pytorch")
+
+    # Dataset parameters
     parser.add_argument("--dataset", default="cifar10", 
                         type=str, choices=["cifar10", "cifar100"])
     parser.add_argument("--datapath", default="./data/", 
                         type=str, help="Path to the CIFAR-10/100 dataset")
     parser.add_argument('--num-labeled', type=int, 
                         default=4000, help='Total number of labeled samples')
+    parser.add_argument("--expand-labels", action="store_true", 
+                        help="expand labels to fit eval steps")
+    parser.add_argument('--train-batch', default=64, type=int,
+                        help='train batchsize')
+    parser.add_argument('--test-batch', default=64, type=int,
+                        help='train batchsize')
+    parser.add_argument('--num-workers', default=1, type=int,
+                        help="Number of workers to launch during training")
+
+    # Model parameters
+    parser.add_argument("--model-depth", type=int, default=28,
+                        help="model depth for wide resnet") 
+    parser.add_argument("--model-width", type=int, default=2,
+                        help="model width for wide resnet")
+
+    # Optimisation parameters
     parser.add_argument("--lr", default=0.03, type=float, 
                         help="The initial learning rate") 
     parser.add_argument("--momentum", default=0.9, type=float,
@@ -208,34 +258,30 @@ if __name__ == "__main__":
                         help="Weight decay")
     parser.add_argument("--lr-decay", default=0.95, type=float, 
                         help="Learning rate decay for Exponential scheduler")
-    parser.add_argument("--expand-labels", action="store_true", 
-                        help="expand labels to fit eval steps")
-    parser.add_argument('--train-batch', default=64, type=int,
-                        help='train batchsize')
-    parser.add_argument('--test-batch', default=64, type=int,
-                        help='train batchsize')
+
+    # Pseudo-labeling parameters
+    parser.add_argument('--threshold', type=float, default=0.95,
+                        help='Confidence Threshold for pseudo labeling')
+    parser.add_argument('--pseudo-loss-coeff', type=float, default=2.0,
+                        help='Coefficient for maximum weight for pseudo label loss')
+    parser.add_argument('--pre-train', type=int, default=3, 
+                        help='Number of epochs to pre-train the model before doing pseudo-labeling')
+
+
+    # Training control parameters
     parser.add_argument('--total-iter', default=1024*512, type=int,
                         help='total number of iterations to run')
     parser.add_argument('--iter-per-epoch', default=1024, type=int,
                         help="Number of iterations to run per epoch")
-    parser.add_argument('--num-workers', default=1, type=int,
-                        help="Number of workers to launch during training")
-    parser.add_argument('--threshold', type=float, default=0.95,
-                        help='Confidence Threshold for pseudo labeling')
-    parser.add_argument("--dataout", type=str, default="./runs/{}".format(current_time),
-                        help="Path to save log files")
-    parser.add_argument("--model-depth", type=int, default=28,
-                        help="model depth for wide resnet") 
-    parser.add_argument("--model-width", type=int, default=2,
-                        help="model width for wide resnet")
     parser.add_argument("--checkpoint-freq", type=int, default=10, 
                         help="Save checkpoint after these many epochs")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--model-path", type=str)
 
-    
+    # Logging parameters
+    parser.add_argument("--dataout", type=str, default="./runs/{}".format(current_time),
+                        help="Path to save log files")
 
-    
     # Add more arguments if you need them
     # Describe them in help
     # You can (and should) change the default values of the arguments
