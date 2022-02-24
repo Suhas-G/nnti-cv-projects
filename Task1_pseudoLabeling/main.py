@@ -72,7 +72,6 @@ def get_params(args):
         'num_labeled': args.num_labeled,
         'lr': args.lr,
         'momentum': args.momentum,
-        'weight_decay': args.wd,
         'train_batch_size': args.train_batch,
         'test_batch_size': args.test_batch,
         'total_iter': args.total_iter,
@@ -214,6 +213,11 @@ def main(args):
             save_checkpoint(model, epoch, './checkpoints/{}/checkpoint_{}.pth'.format(current_time,epoch + 1),
                             optimiser = optimiser, params=get_params(args))
     
+    writer.add_hparams( get_params(args),
+                        {
+                            'final_validation_loss': validation_loss,
+                            'final_validation_accuracy': validation_accuracy,
+                        })
 
     test_loss, test_accuracy = test(model, test_loader, criterion, device)
     writer.add_scalar('loss/test', test_loss, epoch)
@@ -254,8 +258,6 @@ if __name__ == "__main__":
                         help="The initial learning rate") 
     parser.add_argument("--momentum", default=0.9, type=float,
                         help="Optimizer momentum")
-    parser.add_argument("--wd", default=0.00005, type=float,
-                        help="Weight decay")
     parser.add_argument("--lr-decay", default=0.95, type=float, 
                         help="Learning rate decay for Exponential scheduler")
 
