@@ -71,6 +71,7 @@ def get_params(args):
         'dataset': args.dataset,
         'num_labeled': args.num_labeled,
         'lr': args.lr,
+        'lr_decay': args.lr_decay,
         'momentum': args.momentum,
         'train_batch_size': args.train_batch,
         'test_batch_size': args.test_batch,
@@ -78,7 +79,8 @@ def get_params(args):
         'iter_per_epoch': args.iter_per_epoch,
         'threshold': args.threshold,
         'model_depth': args.model_depth,
-        'model_width': args.model_width
+        'model_width': args.model_width,
+        'pre_train': args.pre_train
     }
 
 def get_next_batch(dataset, loader, batch_size, num_workers, shuffle=True):
@@ -174,8 +176,10 @@ def main(args):
             optimiser.zero_grad()
             pseudo_loss = 0.0
             outputs_labelled = model(x_l)
+            labelled_size = outputs_labelled.size(0)
             if pseudo_loader is not None:
                 outputs_pseudo_labelled = model(x_pseudo)
+                pseudo_size = outputs_pseudo_labelled.size(0)
                 pseudo_loss = get_pseudo_loss_coeff(epoch, args.pseudo_loss_coeff, args.pre_train, start_epoch + args.epoch) * criterion(outputs_pseudo_labelled, y_pseudo)
 
             loss_labelled = criterion(outputs_labelled, y_l)
@@ -183,9 +187,9 @@ def main(args):
             total_loss.backward()
             optimiser.step()
 
-            writer.add_scalar('loss/train_labelled', loss_labelled, epoch*args.iter_per_epoch+i)
-            writer.add_scalar('loss/pseudo_labelled', pseudo_loss, epoch*args.iter_per_epoch+i)
-            writer.add_scalar('loss/total', total_loss.item(), epoch*args.iter_per_epoch+i)
+            writer.add_scalar('loss/train_labelled', loss_labelled / labelled_size, epoch*args.iter_per_epoch+i)
+            writer.add_scalar('loss/pseudo_labelled', pseudo_loss / pseudo_size, epoch*args.iter_per_epoch+i)
+            writer.add_scalar('loss/total', total_loss.item() / (labelled_size + pseudo_size), epoch*args.iter_per_epoch+i)
 
             if epoch >= args.pre_train:
                 with torch.no_grad():
