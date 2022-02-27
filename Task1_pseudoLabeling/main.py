@@ -177,6 +177,7 @@ def main(args):
             pseudo_loss = 0.0
             outputs_labelled = model(x_l)
             labelled_size = outputs_labelled.size(0)
+            pseudo_size = 1e-8
             if pseudo_loader is not None:
                 outputs_pseudo_labelled = model(x_pseudo)
                 pseudo_size = outputs_pseudo_labelled.size(0)
