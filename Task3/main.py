@@ -38,14 +38,14 @@ def create_validation_dataset(unlabelled_train, num_classes, size=1000):
 def get_datasets(args):
     if args.dataset == "cifar10":
         args.num_classes = 10
-        labeled_dataset, unlabeled_dataset, test_dataset = get_cifar10(args, 
+        labeled_dataset, unlabeled_dataset, validation_dataset, test_dataset = get_cifar10(args, 
                                                                 args.datapath)
     if args.dataset == "cifar100":
         args.num_classes = 100
-        labeled_dataset, unlabeled_dataset, test_dataset = get_cifar100(args, 
+        labeled_dataset, unlabeled_dataset, validation_dataset, test_dataset = get_cifar100(args, 
                                                                 args.datapath)
 
-    validation_dataset = create_validation_dataset(unlabeled_dataset, args.num_classes, size=10000)
+
 
     return labeled_dataset, unlabeled_dataset, validation_dataset, test_dataset
 
@@ -61,12 +61,27 @@ def get_next_batch(dataset, batch_size, num_workers, loader = None, device = tor
                                                          strongly_augmented.to(device), target.to(device))
     return img, weakly_augmented, strongly_augmented, target, loader
 
+def test(model: torch.nn.Module, loader: DataLoader, 
+            criterion: torch.nn.CrossEntropyLoss, device: torch.device):
+    model.eval()
+    val_loss = 0.0
+    val_acc = 0.0
+    with torch.no_grad():
+        for data, target in loader:
+            data, target = data.to(device), target.to(device)
+            output, _ = model(data)
+            val_loss += criterion(output, target).item()
+            val_acc += accuracy(output, target)[0]
+    return val_loss / len(loader), val_acc / len(loader)
 
 def get_params(args):
     return {
         'dataset': args.dataset,
         'num_labeled': args.num_labeled,
         'lr': args.lr,
+        'threshold': args.threshold,
+        'fixmatch_alpha': args.fixmatch_alpha,
+        'contrastive_alpha': args.contrastive_alpha,
         'train_batch_size': args.train_batch,
         'test_batch_size': args.test_batch,
         'total_iter': args.total_iter,
@@ -88,8 +103,10 @@ def main(args):
 
     labeled_loader = None
     unlabeled_loader = None
-    test_loader = None
-    val_loader = None
+    test_loader = DataLoader(test_dataset, batch_size = args.test_batch,
+                             shuffle = False, num_workers=args.num_workers)
+    val_loader = DataLoader(validation_dataset, batch_size=args.test_batch,
+                             shuffle = True, num_workers=args.num_workers)
 
     model = WideResNet(args.model_depth, args.num_classes, widen_factor=args.model_width)
     start_epoch = 0
@@ -98,7 +115,7 @@ def main(args):
         start_epoch = rets['epoch'] + 1
     model       = model.to(device)
     ce_loss_obj = nn.CrossEntropyLoss()
-    contrastive_loss_obj = ContrastiveLoss(args.train_batch)
+    contrastive_loss_obj = ContrastiveLoss(args.train_batch).to(device)
 
     optimiser = optim.Adam(model.parameters(), lr=args.lr)
     if args.resume:
@@ -110,8 +127,8 @@ def main(args):
         for i in range(args.iter_per_epoch):
             x_l, _, _, y_l, labeled_loader = get_next_batch(labeled_dataset, args.train_batch, 
                                                         args.num_workers, loader = labeled_loader, device = device)
-            x_ul, xw_ul, xs_wl, _, unlabeled_loader = get_next_batch(unlabeled_dataset, unlabeled_loader, 
-                                                        args.train_batch, args.num_workers, device = device)
+            x_ul, xw_ul, xs_wl, _, unlabeled_loader = get_next_batch(unlabeled_dataset, args.train_batch, 
+                                                        args.num_workers, loader = unlabeled_loader, device = device)
 
             optimiser.zero_grad()
 
@@ -129,18 +146,34 @@ def main(args):
             consistency_loss = get_consistency_loss(unlabeled_weakly_augmented_outputs, unlabeled_strongly_augmented_outputs, args.threshold)
             contrastive_loss = contrastive_loss_obj(unlabeled_features, unlabeled_weakly_augmented_features, predicted_cls)
 
-            loss = supervised_loss + consistency_loss + contrastive_loss
+            loss = supervised_loss + args.fixmatch_alpha * consistency_loss + args.contrastive_alpha * contrastive_loss
             loss.backward()
             optimiser.step()
 
             writer.add_scalar('train/supervised_loss', supervised_loss.item(), epoch * args.iter_per_epoch + i)
             writer.add_scalar('train/consistency_loss', consistency_loss.item(), epoch * args.iter_per_epoch + i)
+            writer.add_scalar('train/contrastive_loss', contrastive_loss.item(), epoch * args.iter_per_epoch + i)
             writer.add_scalar('train/total_loss', loss.item(), epoch * args.iter_per_epoch + i)
+
+        validation_loss, validation_accuracy = test(model, val_loader, ce_loss_obj, device)
+        writer.add_scalar('loss/validation', validation_loss, epoch)
+        writer.add_scalar('accuracy/validation', validation_accuracy, epoch)
 
         if epoch == 0 or (epoch + 1) % args.checkpoint_freq == 0:
             save_checkpoint(model, epoch, './checkpoints/{}/checkpoint_{}.pth'.format(current_time,epoch + 1),
                             optimiser = optimiser, params=get_params(args))
-        writer.close()
+
+    test_loss, test_accuracy = test(model, test_loader, ce_loss_obj, device)
+
+    writer.add_hparams( get_params(args),
+                        {
+                            'final_validation_loss': validation_loss,
+                            'final_validation_accuracy': validation_accuracy,
+                        })
+    writer.add_scalar('loss/test', test_loss, epoch)
+    writer.add_scalar('accuracy/test', test_accuracy, epoch)
+
+    writer.close()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Custom SSL implementation using pytorch (FixMatch + SimCLRv2)")
@@ -182,6 +215,13 @@ if __name__ == '__main__':
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--model-path", type=str)
 
+    # FixMatch parameters
+    parser.add_argument('--threshold', type=float, default=0.95,
+                        help='Confidence Threshold for pseudo labeling')
+    parser.add_argument("--fixmatch-alpha", default=1, type=float, 
+                        help="Weight of fixmatch loss") 
+    parser.add_argument("--contrastive-alpha", default=1, type=float, 
+                        help="Weight of contrastive loss") 
 
     # Logging parameters
     parser.add_argument("--dataout", type=str, default="./runs/{}".format(current_time),

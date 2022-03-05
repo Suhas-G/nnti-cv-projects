@@ -11,6 +11,20 @@ cifar10_std     = [0.2471, 0.2435, 0.2616]
 cifar100_mean   = [0.5071, 0.4867, 0.4408]
 cifar100_std    = [0.2675, 0.2565, 0.2761]
 
+def get_validation_indices(unlabelled_idx, targets, num_classes, size=1000):
+    class_size = size // num_classes
+    validation_idx = []
+    targets = np.array(targets)
+    targets_unlabelled = np.full(targets.shape, -1)
+    targets_unlabelled[unlabelled_idx] = targets[unlabelled_idx]
+    for c in range(num_classes):
+        c_targets = np.where(targets_unlabelled == c)[0]
+        assert len(c_targets) >= class_size
+        idx = np.random.choice(c_targets, class_size, replace=False)
+        validation_idx.extend(idx)
+    
+    return validation_idx
+
 def x_u_split(args, labels):
     label_per_class = args.num_labeled // args.num_classes
     labels = np.array(labels)
@@ -42,20 +56,20 @@ def get_cifar10(args, root):
         transforms.Normalize(mean=cifar10_mean, std=cifar10_std)
     ])
 
-    transform_weak = transforms.Compose([
+    weak_transform = transforms.Compose([
         transforms.RandomHorizontalFlip(p = 0.5),
         transforms.RandomAffine(0, translate=(0.125, 0.125)),
         transforms.ToTensor(),
         transforms.Normalize(mean=cifar10_mean, std=cifar10_std)
     ])
 
-    transform_strong = transforms.Compose([
+    strong_transform = transforms.Compose([
         transforms.RandAugment(),
         transforms.ToTensor(),
         transforms.Normalize(mean=cifar10_mean, std=cifar10_std)
     ])
 
-    transform_val = transforms.Compose([
+    base_transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize(mean=cifar10_mean, std=cifar10_std)
     ])
@@ -70,13 +84,17 @@ def get_cifar10(args, root):
 
     train_unlabeled_dataset = CIFAR10SSL(
         root, train_unlabeled_idxs, train=True,
-        transform_weak = transform_weak,
-        transform_strong = transform_strong)
+        transform=base_transform,
+        weak_transform = weak_transform,
+        strong_transform = strong_transform)
+
+    validation_idx = get_validation_indices(train_unlabeled_idxs, base_dataset.targets, 10)
+    validation_dataset = CIFAR10SSL(root, validation_idx, validation = True, transform=base_transform)
 
     test_dataset = datasets.CIFAR10(
-        root, train=False, transform=transform_val, download=False)
+        root, train=False, transform=base_transform, download=False)
 
-    return train_labeled_dataset, train_unlabeled_dataset, test_dataset
+    return train_labeled_dataset, train_unlabeled_dataset, validation_dataset, test_dataset
 
 
 def get_cifar100(args, root):
@@ -89,14 +107,14 @@ def get_cifar100(args, root):
         transforms.ToTensor(),
         transforms.Normalize(mean=cifar100_mean, std=cifar100_std)])
     
-    transform_weak = transforms.Compose([
+    weak_transform = transforms.Compose([
         transforms.RandomHorizontalFlip(p = 0.5),
         transforms.RandomAffine(0, translate=(0.125, 0.125)),
         transforms.ToTensor(),
         transforms.Normalize(mean=cifar100_mean, std=cifar100_std)
     ])
 
-    transform_strong = transforms.Compose([
+    strong_transform = transforms.Compose([
         transforms.RandAugment(),
         transforms.ToTensor(),
         transforms.Normalize(mean=cifar100_mean, std=cifar100_std)
@@ -118,16 +136,19 @@ def get_cifar100(args, root):
 
     train_unlabeled_dataset = CIFAR100SSL(
         root, train_unlabeled_idxs, train=True,
-        transform_weak = transform_weak,
-        transform_strong = transform_strong)
+        weak_transform = weak_transform,
+        strong_transform = strong_transform)
+
+    validation_idx = get_validation_indices(train_unlabeled_idxs, base_dataset.targets, 100)
+    validation_dataset = CIFAR100SSL(root, validation_idx, validation = True, transform=transform_val)
 
     test_dataset = datasets.CIFAR100(
         root, train=False, transform=transform_val, download=False)
 
-    return train_labeled_dataset, train_unlabeled_dataset, test_dataset
+    return train_labeled_dataset, train_unlabeled_dataset, validation_dataset, test_dataset
 
 class CIFAR10SSL(datasets.CIFAR10):
-    def __init__(self, root, indexs, train=True,
+    def __init__(self, root, indexs, train=True, validation = False,
                  transform = None,
                  weak_transform=None, 
                  strong_transform=None,
@@ -137,7 +158,9 @@ class CIFAR10SSL(datasets.CIFAR10):
                          transform=transform,
                          target_transform=target_transform,
                          download=download)
+
         if indexs is not None:
+            self.validation = validation
             self.data = self.data[indexs]
             self.targets = np.array(self.targets)[indexs]
             self.weak_transform = weak_transform
@@ -147,26 +170,30 @@ class CIFAR10SSL(datasets.CIFAR10):
         img, target = self.data[index], self.targets[index]
         img = Image.fromarray(img)
 
-        weakly_augmented = None
-        strongly_augmented = None
+        weakly_augmented = torch.empty(0)
+        strongly_augmented = torch.empty(0)
+        
+        if self.weak_transform is not None and self.train:
+            weakly_augmented = self.weak_transform(img)
+
+        if self.strong_transform is not None and self.train:
+            strongly_augmented = self.strong_transform(img)
 
         if self.transform is not None:
             img = self.transform(img)
 
-        if self.weak_transform is not None:
-            weakly_augmented = self.weak_transform(img)
-
-        if self.strong_transform is not None:
-            strongly_augmented = self.strong_transform(img)
 
         if self.target_transform is not None:
             target = self.target_transform(target)
 
         target = torch.tensor(target)
-        return torch.tensor(img), weakly_augmented, strongly_augmented, target.long()
+        if self.train and not self.validation:
+            return img, weakly_augmented, strongly_augmented, target.long()
+        else:
+            return torch.tensor(img), target.long()
 
 class CIFAR100SSL(datasets.CIFAR100):
-    def __init__(self, root, indexs, train=True,
+    def __init__(self, root, indexs, train=True, validation = False,
                  transform = None,
                  weak_transform=None, 
                  strong_transform=None,
@@ -177,6 +204,7 @@ class CIFAR100SSL(datasets.CIFAR100):
                          target_transform=target_transform,
                          download=download)
         if indexs is not None:
+            self.validation = validation
             self.data = self.data[indexs]
             self.targets = np.array(self.targets)[indexs]
             self.weak_transform = weak_transform
@@ -185,21 +213,25 @@ class CIFAR100SSL(datasets.CIFAR100):
     def __getitem__(self, index):
         img, target = self.data[index], self.targets[index]
         img = Image.fromarray(img)
-        weakly_augmented = None
-        strongly_augmented = None
+        weakly_augmented = torch.empty(0)
+        strongly_augmented = torch.empty(0)
+
+        if self.weak_transform is not None and self.train:
+            weakly_augmented = self.weak_transform(img)
+
+        if self.strong_transform is not None and self.train:
+            strongly_augmented = self.strong_transform(img)
 
         if self.transform is not None:
             img = self.transform(img)
 
-        if self.weak_transform is not None:
-            weakly_augmented = self.weak_transform(img)
-
-        if self.strong_transform is not None:
-            strongly_augmented = self.strong_transform(img)
 
         if self.target_transform is not None:
             target = self.target_transform(target)
 
         target = torch.tensor(target)
-        return torch.tensor(img), weakly_augmented, strongly_augmented, target.long()
+        if self.train and not self.validation:
+            return img, weakly_augmented, strongly_augmented, target.long()
+        else:
+            return torch.tensor(img), target.long()
 
