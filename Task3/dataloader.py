@@ -120,7 +120,7 @@ def get_cifar100(args, root):
         transforms.Normalize(mean=cifar100_mean, std=cifar100_std)
     ])
 
-    transform_val = transforms.Compose([
+    base_transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize(mean=cifar100_mean, std=cifar100_std)])
 
@@ -136,14 +136,15 @@ def get_cifar100(args, root):
 
     train_unlabeled_dataset = CIFAR100SSL(
         root, train_unlabeled_idxs, train=True,
+        transform=base_transform,
         weak_transform = weak_transform,
         strong_transform = strong_transform)
 
     validation_idx = get_validation_indices(train_unlabeled_idxs, base_dataset.targets, 100)
-    validation_dataset = CIFAR100SSL(root, validation_idx, validation = True, transform=transform_val)
+    validation_dataset = CIFAR100SSL(root, validation_idx, validation = True, transform=base_transform)
 
     test_dataset = datasets.CIFAR100(
-        root, train=False, transform=transform_val, download=False)
+        root, train=False, transform=base_transform, download=False)
 
     return train_labeled_dataset, train_unlabeled_dataset, validation_dataset, test_dataset
 
