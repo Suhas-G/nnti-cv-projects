@@ -195,6 +195,7 @@ def main(args):
             if epoch >= args.pre_train:
                 with torch.no_grad():
                     outputs = model(x_ul)
+                    outputs = torch.softmax(outputs.detach(), dim=-1)
                     x_temp = x_ul[(outputs >= args.threshold).any(axis=1)]
                     _, label_temp = torch.max(outputs[(outputs >= args.threshold).any(axis=1)], axis=1)
                     pseudo_labelled.append(x_temp.cpu(), label_temp.cpu())
