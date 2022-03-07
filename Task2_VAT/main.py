@@ -39,13 +39,18 @@ def test(model: torch.nn.Module, loader: DataLoader,
     model.eval()
     val_loss = 0.0
     val_acc = 0.0
+    total = 0.0
+    correct = 0.0
     with torch.no_grad():
         for data, target in loader:
             data, target = data.to(device), target.to(device)
             output = model(data)
             val_loss += criterion(output, target).item()
-            val_acc += accuracy(output, target)[0]
-    return val_loss / len(loader), val_acc / len(loader)
+            _, predicted = torch.max(output.data, 1)
+            total += target.size(0)
+            correct += (predicted == target).sum().item()
+            # val_acc += accuracy(output, target)[0]
+    return val_loss / len(loader), (correct / total) * 100
 
 def get_params(args):
     return {
