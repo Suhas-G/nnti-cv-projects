@@ -25,6 +25,7 @@ class PseudoLabelledDataset(torch.utils.data.Dataset):
         super().__init__()
         self.data = None
         self.targets = None
+        self.max_length = 50000
 
     def __len__(self) -> int:
         if self.data is None:
@@ -42,6 +43,10 @@ class PseudoLabelledDataset(torch.utils.data.Dataset):
             self.data = torch.cat([self.data, data.detach().clone()])
             self.targets = torch.cat([self.targets, target.detach().clone()])
 
+        if len(self.data) > self.max_length:
+            self.data = self.data[-self.max_length:]
+            self.targets = self.targets[-self.max_length:]
+
 def create_validation_dataset(unlabelled_train, num_classes, size=1000):
     class_size = size // num_classes
     validation_idx = []
@@ -58,13 +63,18 @@ def test(model: torch.nn.Module, loader: DataLoader,
     model.eval()
     val_loss = 0.0
     val_acc = 0.0
+    total = 0.0
+    correct = 0.0
     with torch.no_grad():
         for data, target in loader:
             data, target = data.to(device), target.to(device)
             output = model(data)
             val_loss += criterion(output, target).item()
-            val_acc += accuracy(output, target)[0]
-    return val_loss / len(loader), val_acc / len(loader)
+            _, predicted = torch.max(output.data, 1)
+            total += target.size(0)
+            correct += (predicted == target).sum().item()
+            # val_acc += accuracy(output, target)[0]
+    return val_loss / len(loader), (correct / total) * 100
 
 def get_params(args):
     return {
