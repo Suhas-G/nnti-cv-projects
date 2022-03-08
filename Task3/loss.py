@@ -55,7 +55,14 @@ class ContrastiveLoss(nn.Module):
         z_j = F.normalize(emb_j, dim=1)
 
         loss1 = self.augmentation_contrastive_loss(z_i, z_j)
-        loss2 = self.class_contrastive_loss(z_i[predicted_cls != -1], z_j[predicted_cls != -1], predicted_cls[predicted_cls != -1])
+        reduced_z_i = z_i[predicted_cls != -1]
+        reduced_z_j = z_j[predicted_cls != -1]
+
+        if reduced_z_i.size(0) == 0:
+            assert reduced_z_j.size(0) == 0
+            loss2 = 0.0
+        else:
+            loss2 = 0.01 * self.class_contrastive_loss(reduced_z_i, reduced_z_j, predicted_cls[predicted_cls != -1])
 
 
 

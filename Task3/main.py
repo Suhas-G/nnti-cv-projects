@@ -66,13 +66,18 @@ def test(model: torch.nn.Module, loader: DataLoader,
     model.eval()
     val_loss = 0.0
     val_acc = 0.0
+    total = 0.0
+    correct = 0.0
     with torch.no_grad():
         for data, target in loader:
             data, target = data.to(device), target.to(device)
             output, _ = model(data)
             val_loss += criterion(output, target).item()
-            val_acc += accuracy(output, target)[0]
-    return val_loss / len(loader), val_acc / len(loader)
+            _, predicted = torch.max(output.data, 1)
+            total += target.size(0)
+            correct += (predicted == target).sum().item()
+            # val_acc += accuracy(output, target)[0]
+    return val_loss / len(loader), (correct / total) * 100
 
 def get_params(args):
     return {
@@ -117,10 +122,11 @@ def main(args):
     ce_loss_obj = nn.CrossEntropyLoss()
     contrastive_loss_obj = ContrastiveLoss(args.train_batch).to(device)
 
-    optimiser = optim.Adam(model.parameters(), lr=args.lr)
+    optimiser = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
     if args.resume:
         optimiser.load_state_dict(rets['optimiser'])
 
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimiser, args.iter_per_epoch, eta_min= args.lr * 0.001)
 
     for epoch in range(start_epoch, start_epoch + args.epoch):
         model.train()
@@ -150,10 +156,13 @@ def main(args):
             loss.backward()
             optimiser.step()
 
+            scheduler.step()
+
             writer.add_scalar('train/supervised_loss', supervised_loss.item(), epoch * args.iter_per_epoch + i)
             writer.add_scalar('train/consistency_loss', consistency_loss.item(), epoch * args.iter_per_epoch + i)
             writer.add_scalar('train/contrastive_loss', contrastive_loss.item(), epoch * args.iter_per_epoch + i)
             writer.add_scalar('train/total_loss', loss.item(), epoch * args.iter_per_epoch + i)
+            writer.add_scalar('train/lr', scheduler.get_last_lr()[0], epoch * args.iter_per_epoch + i)
 
         validation_loss, validation_accuracy = test(model, val_loader, ce_loss_obj, device)
         writer.add_scalar('loss/validation', validation_loss, epoch)
