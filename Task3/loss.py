@@ -24,7 +24,7 @@ class ContrastiveLoss(nn.Module):
         denominator = self.negatives_mask[: similarity_matrix.size(0), :similarity_matrix.size(1)] * torch.exp(similarity_matrix / self.temperature)
     
         loss_partial = -torch.log(numerator / torch.sum(denominator, dim=1))
-        loss = torch.sum(loss_partial) / (2 * self.batch_size)
+        loss = torch.sum(loss_partial) / (2 * similarity_matrix.size(0))
         return loss
 
     def class_contrastive_loss(self, z_i, z_j, predicted_cls):
@@ -41,7 +41,7 @@ class ContrastiveLoss(nn.Module):
         denominator = torch.exp(negatives / self.temperature)
 
         loss_partial = -torch.log(numerator / torch.sum(denominator, dim=1))
-        loss = torch.sum(loss_partial) / (2 * self.batch_size)
+        loss = torch.sum(loss_partial) / (2 * cls_similarity_matrix.size(0))
         return loss
 
 
