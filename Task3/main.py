@@ -126,8 +126,8 @@ def main(args):
     if args.resume:
         optimiser.load_state_dict(rets['optimiser'])
 
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimiser, args.iter_per_epoch, eta_min= args.lr * 0.001)
-
+    # scheduler = optim.lr_scheduler.CosineAnnealingLR(optimiser, args.iter_per_epoch, eta_min= args.lr * 0.001)
+    scheduler = optim.lr_scheduler.StepLR(optimiser, step_size = 5, gamma = 0.9)
     for epoch in range(start_epoch, start_epoch + args.epoch):
         model.train()
         for i in range(args.iter_per_epoch):
@@ -156,7 +156,7 @@ def main(args):
             loss.backward()
             optimiser.step()
 
-            scheduler.step()
+            # scheduler.step()
 
             writer.add_scalar('train/supervised_loss', supervised_loss.item(), epoch * args.iter_per_epoch + i)
             writer.add_scalar('train/consistency_loss', consistency_loss.item(), epoch * args.iter_per_epoch + i)
@@ -167,6 +167,8 @@ def main(args):
         validation_loss, validation_accuracy = test(model, val_loader, ce_loss_obj, device)
         writer.add_scalar('loss/validation', validation_loss, epoch)
         writer.add_scalar('accuracy/validation', validation_accuracy, epoch)
+
+        scheduler.step()
 
         if epoch == 0 or (epoch + 1) % args.checkpoint_freq == 0:
             save_checkpoint(model, epoch, './checkpoints/{}/checkpoint_{}.pth'.format(current_time,epoch + 1),
