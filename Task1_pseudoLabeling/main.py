@@ -25,7 +25,7 @@ class PseudoLabelledDataset(torch.utils.data.Dataset):
         super().__init__()
         self.data = None
         self.targets = None
-        self.max_length = 50000
+        self.max_length = 100000
 
     def __len__(self) -> int:
         if self.data is None:
