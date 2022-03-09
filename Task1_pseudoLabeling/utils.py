@@ -23,51 +23,36 @@ def accuracy(output, target, topk=(1,)):
             res.append(correct_k.mul_(100.0 / batch_size))
         return res
 
-def save_checkpoint(model, epoch, filename, optimiser=None, save_arch=False, params=None):
+def save_checkpoint(model: torch.nn.Module, epoch: int, filename: str, 
+                   optimiser: torch.optim.Optimizer = None, params = None):
     print('Saving checkpoint to {}'.format(filename))
-    attributes = {
+    data = {
         'epoch': epoch,
         'state_dict': model.state_dict(),
     }
 
     if optimiser is not None:
-        attributes['optimiser'] = optimiser.state_dict()
+        data['optimiser'] = optimiser.state_dict()
 
-    if save_arch:
-        attributes['arch'] = model
 
     if params is not None:
-        attributes['params'] = params
+        data['params'] = params
 
     path = Path(filename)
     if not path.parent.exists():
         path.parent.mkdir(parents=True)
-    try:
-        torch.save(attributes, filename)
-    except TypeError:
-        if 'arch' in attributes:
-            print('Model architecture will be ignored because the architecture includes non-pickable objects.')
-            del attributes['arch']
-            torch.save(attributes, filename)
 
+    torch.save(data, filename)
 
-def load_checkpoint(path, model=None, return_optimiser=False, return_params=False):
+def load_checkpoint(path: str, model: torch.nn.Module = None, 
+                    return_optimiser: bool = False, return_params: bool = False):
     print('Loading checkpoint from {}'.format(path))
     resume = torch.load(path)
-
     rets = dict()
 
     rets['epoch'] = resume['epoch']
     if model is not None:
-        if ('module' in list(resume['state_dict'].keys())[0]) \
-                and not (isinstance(model, torch.nn.DataParallel)):
-            new_state_dict = OrderedDict()
-            for k, v in resume['state_dict'].items():
-                new_state_dict[k.replace('module.', '')] = v  # remove DataParallel wrapping
-
-            model.load_state_dict(new_state_dict)
-        else:
-            model.load_state_dict(resume['state_dict'])
+        model.load_state_dict(resume['state_dict'])
 
         rets['model'] = model
 
@@ -77,13 +62,3 @@ def load_checkpoint(path, model=None, return_optimiser=False, return_params=Fals
         rets['params'] = resume['params']
 
     return rets
-
-
-def load_model(path, model=None, is_inference=True):
-    resume = torch.load(path)
-    if model is None:
-        model = resume['arch']
-    model.load_state_dict(resume['state_dict'])
-    if is_inference:
-        model.eval()
-    return model

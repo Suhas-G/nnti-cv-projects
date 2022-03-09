@@ -51,7 +51,7 @@ def test_cifar10(testdataset, filepath = "./path/to/model.pth.tar", debug = Fals
 
     return torch.cat(outputs, dim=0)
 
-def test_cifar100(testdataset, filepath="./path/to/model.pth.tar"):
+def test_cifar100(testdataset, filepath="./path/to/model.pth.tar", debug = False):
     '''
     args: 
         testdataset : (torch.utils.data.Dataset)
@@ -77,16 +77,24 @@ def test_cifar100(testdataset, filepath="./path/to/model.pth.tar"):
     test_batch_size = model_data['params']['test_batch_size']
     dataloader = DataLoader(testdataset, batch_size = test_batch_size, shuffle = False)
     outputs = []
+    count = 0
+    avg_accuracy = 0
     with torch.no_grad():
         for batch_idx, (data, target) in enumerate(dataloader):
             data, target = data.to(DEVICE), target.to(DEVICE)
             output = F.softmax(model(data), dim=1)
+            if debug:
+                avg_accuracy += accuracy(output, target)[0]
             outputs.append(output.cpu())
+            count += 1
+
+    if debug:
+        print('Average accuracy:', avg_accuracy/count)
 
     return torch.cat(outputs, dim=0)
 
 if __name__ == "__main__":
-    
+    # Testing
     parser = argparse.ArgumentParser(description="Pseudo labeling \
                                         of CIFAR10/100 with pytorch")
 
