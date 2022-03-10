@@ -4,8 +4,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 
-class VATLoss(nn.Module):
 
+class VATLoss(nn.Module):
+    '''VAT Loss'''
     def __init__(self, args):
         super(VATLoss, self).__init__()
         self.xi = args.vat_xi
@@ -13,10 +14,12 @@ class VATLoss(nn.Module):
         self.vat_iter = args.vat_iter
 
     def l2_norm(self, arr):
+        '''Calculate L2 norm of batch of tensors'''
         # Assuming x is of shape, (batch_size, channels, height, width)
         return arr / (torch.linalg.norm(arr.view(arr.size()[0], -1, 1, 1), dim=1, ord=2, keepdim=True) + 1e-7)
 
     def forward(self, model, x):
+        # Random array chosen from Normal distribution with mean 0 and variance 1
         r = Variable(self.l2_norm(torch.normal(0, 1, size = x.size())).to(x.device), requires_grad = True)
 
         with torch.no_grad():

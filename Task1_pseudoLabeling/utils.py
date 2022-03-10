@@ -25,6 +25,9 @@ def accuracy(output, target, topk=(1,)):
 
 def save_checkpoint(model: torch.nn.Module, epoch: int, filename: str, 
                    optimiser: torch.optim.Optimizer = None, params = None):
+    '''Helper function to save the model and optimiser state at a given epoch.
+    It also saves the hyper parameters used in the run.
+    '''
     print('Saving checkpoint to {}'.format(filename))
     data = {
         'epoch': epoch,
@@ -46,6 +49,11 @@ def save_checkpoint(model: torch.nn.Module, epoch: int, filename: str,
 
 def load_checkpoint(path: str, model: torch.nn.Module = None, 
                     return_optimiser: bool = False, return_params: bool = False):
+    '''Helper function to load a checkpoint to continue training.
+    If a model is given, the weights are loaded into it.
+    If `return_optimiser` is True, the optimiser is also loaded.
+    If `return_params` is True, the hyper parameters used in the run are also returned.
+    '''
     print('Loading checkpoint from {}'.format(path))
     resume = torch.load(path)
     rets = dict()
