@@ -96,7 +96,7 @@ def test_cifar100(testdataset, filepath="./path/to/model.pth.tar", debug = False
 
 if __name__ == "__main__":
     # Testing
-    parser = argparse.ArgumentParser(description="Pseudo labeling \
+    parser = argparse.ArgumentParser(description="Test VAT \
                                         of CIFAR10/100 with pytorch")
 
     # Dataset parameters

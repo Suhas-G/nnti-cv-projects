@@ -6,10 +6,19 @@ class ContrastiveLoss(nn.Module):
     def __init__(self, batch_size, temperature=0.5):
         super().__init__()
         self.batch_size = batch_size
+        # It was empirically found that scale of class contrastive loss is 100 times bigger 
+        # than the scale of augmentation contrastive loss. So balancing them using the coefficient.
+        self.balancing_coeff = 0.01
         self.register_buffer("temperature", torch.tensor(temperature))
         self.register_buffer("negatives_mask", (~torch.eye(batch_size * 2, batch_size * 2, dtype=bool)).float())
 
     def augmentation_contrastive_loss(self, z_i, z_j):
+        '''Find cosine similarity of each pair from z_i and z_j.
+        Coresponding pairs of z_i and z_j are considered as positives, whose distance has to be minimised.
+        Hence form the numerator of the loss.
+        All other pairs are considered as negatives, whose distance has to be maximised.
+        And form the denominator of the loss.
+        '''
         representations = torch.cat([z_i, z_j], dim=0)
         similarity_matrix = F.cosine_similarity(representations.unsqueeze(1), representations.unsqueeze(0), dim=2)
         
@@ -28,6 +37,12 @@ class ContrastiveLoss(nn.Module):
         return loss
 
     def class_contrastive_loss(self, z_i, z_j, predicted_cls):
+        '''Find cosine similarity of each pair from filtered z_i and z_j.
+        All pairs that have same predicted class are considered positive, whose distance has to be minimised.
+        Hence forms the numerator of the loss.
+        All other pairs are considered as negatives, whose distance has to be maximised. And form the
+        denominator of the loss.
+        '''
         representations = torch.cat([z_i, z_j], dim=0)
         similarity_matrix = F.cosine_similarity(representations.unsqueeze(1), representations.unsqueeze(0), dim=2)
 
@@ -55,6 +70,7 @@ class ContrastiveLoss(nn.Module):
         z_j = F.normalize(emb_j, dim=1)
 
         loss1 = self.augmentation_contrastive_loss(z_i, z_j)
+        # If predicted class is -1, it means the confidence was lesser than FixMatch threshold.
         reduced_z_i = z_i[predicted_cls != -1]
         reduced_z_j = z_j[predicted_cls != -1]
 
@@ -62,13 +78,19 @@ class ContrastiveLoss(nn.Module):
             assert reduced_z_j.size(0) == 0
             loss2 = 0.0
         else:
-            loss2 = 0.01 * self.class_contrastive_loss(reduced_z_i, reduced_z_j, predicted_cls[predicted_cls != -1])
+            loss2 = self.balancing_coeff * self.class_contrastive_loss(reduced_z_i, reduced_z_j, predicted_cls[predicted_cls != -1])
 
 
 
         return loss1 + loss2
 
 def get_consistency_loss(weakly_augmented_outputs, strongly_augmented_outputs, threshold):
+    '''Cross entropy loss between the weakly augmented image class prediction and 
+    the strongly augmented image class prediction for weakly augmented class predictions 
+    that are greater than a threshold.
+    If no weakly augmented class prediction is greater than the threshold, then the we take loss 
+    as 0.
+    '''
     pseudo_label = torch.softmax(weakly_augmented_outputs.detach(), dim=-1)
     max_probs, targets_u = torch.max(pseudo_label, dim = -1)
     mask = max_probs.ge(threshold)

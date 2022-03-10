@@ -12,6 +12,9 @@ cifar100_mean   = [0.5071, 0.4867, 0.4408]
 cifar100_std    = [0.2675, 0.2565, 0.2761]
 
 def get_validation_indices(unlabelled_idx, targets, num_classes, size=1000):
+    ''' Helper function to get indices for a balanced validation dataset from 
+    unlabelled dataset. 
+    '''
     class_size = size // num_classes
     validation_idx = []
     targets = np.array(targets)
@@ -36,7 +39,7 @@ def x_u_split(args, labels):
         labeled_idx.extend(idx)
     labeled_idx = np.array(labeled_idx)
     assert len(labeled_idx) == args.num_labeled
-
+    # Unlabelled and labelled indices are disjoint
     unlabeled_idx = np.setdiff1d(unlabeled_idx, labeled_idx)
 
     if args.expand_labels or args.num_labeled < args.train_batch:
@@ -47,6 +50,8 @@ def x_u_split(args, labels):
     return labeled_idx, unlabeled_idx
 
 def get_cifar10(args, root):
+    ''' Helper function to create CIFAR10 datasets.
+    '''
     transform_labeled = transforms.Compose([
         transforms.RandomHorizontalFlip(),
         transforms.RandomCrop(size=32,
@@ -98,7 +103,8 @@ def get_cifar10(args, root):
 
 
 def get_cifar100(args, root):
-
+    ''' Helper function to create CIFAR100 datasets.
+    '''
     transform_labeled = transforms.Compose([
         transforms.RandomHorizontalFlip(),
         transforms.RandomCrop(size=32,
@@ -174,9 +180,11 @@ class CIFAR10SSL(datasets.CIFAR10):
         weakly_augmented = torch.empty(0)
         strongly_augmented = torch.empty(0)
         
+        # Apply weak augmentation
         if self.weak_transform is not None and self.train:
             weakly_augmented = self.weak_transform(img)
 
+        # Apply strong augmentation
         if self.strong_transform is not None and self.train:
             strongly_augmented = self.strong_transform(img)
 
@@ -217,9 +225,11 @@ class CIFAR100SSL(datasets.CIFAR100):
         weakly_augmented = torch.empty(0)
         strongly_augmented = torch.empty(0)
 
+        # Apply weak augmentation
         if self.weak_transform is not None and self.train:
             weakly_augmented = self.weak_transform(img)
 
+        # Apply strong augmentation
         if self.strong_transform is not None and self.train:
             strongly_augmented = self.strong_transform(img)
 

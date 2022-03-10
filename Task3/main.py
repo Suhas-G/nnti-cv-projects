@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader 
 from torch.utils.tensorboard import SummaryWriter
 
 
@@ -24,18 +24,9 @@ from loss import ContrastiveLoss, get_consistency_loss
 
 current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
 
-def create_validation_dataset(unlabelled_train, num_classes, size=1000):
-    class_size = size // num_classes
-    validation_idx = []
-    for c in range(num_classes):
-        c_targets = np.where(unlabelled_train.targets == c)[0]
-        assert len(c_targets) >= class_size
-        idx = np.random.choice(c_targets, class_size, replace=False)
-        validation_idx.extend(idx)
-    
-    return Subset(unlabelled_train, validation_idx)
 
-def get_datasets(args):
+def get_datasets(args: argparse.Namespace):
+    '''Helper function to create appropriate train, validation and test datasets'''
     if args.dataset == "cifar10":
         args.num_classes = 10
         labeled_dataset, unlabeled_dataset, validation_dataset, test_dataset = get_cifar10(args, 
@@ -45,11 +36,14 @@ def get_datasets(args):
         labeled_dataset, unlabeled_dataset, validation_dataset, test_dataset = get_cifar100(args, 
                                                                 args.datapath)
 
-
-
     return labeled_dataset, unlabeled_dataset, validation_dataset, test_dataset
 
-def get_next_batch(dataset, batch_size, num_workers, loader = None, device = torch.device('cpu'), shuffle=True):
+def get_next_batch(dataset: torch.utils.data.Dataset, batch_size: int, num_workers: int, 
+                  loader: DataLoader = None, device = torch.device('cpu'), shuffle=True):
+    '''
+    Helper function to get the next batch of data from the loader.
+    If the loader is exhausted, it will be reinitialised.
+    '''
     try:
         img, weakly_augmented, strongly_augmented, target = next(loader)
     except (StopIteration, TypeError):
@@ -63,9 +57,10 @@ def get_next_batch(dataset, batch_size, num_workers, loader = None, device = tor
 
 def test(model: torch.nn.Module, loader: DataLoader, 
             criterion: torch.nn.CrossEntropyLoss, device: torch.device):
+    ''' Calculate loss and accuracy for given data
+    '''
     model.eval()
     val_loss = 0.0
-    val_acc = 0.0
     total = 0.0
     correct = 0.0
     with torch.no_grad():
@@ -76,10 +71,10 @@ def test(model: torch.nn.Module, loader: DataLoader,
             _, predicted = torch.max(output.data, 1)
             total += target.size(0)
             correct += (predicted == target).sum().item()
-            # val_acc += accuracy(output, target)[0]
     return val_loss / len(loader), (correct / total) * 100
 
-def get_params(args):
+def get_params(args: argparse.Namespace):
+    '''Helper function to get all the parameters used for the run'''
     return {
         'dataset': args.dataset,
         'num_labeled': args.num_labeled,
@@ -97,7 +92,7 @@ def get_params(args):
     }
 
 
-def main(args):
+def main(args: argparse.Namespace):
     labeled_dataset, unlabeled_dataset, validation_dataset, test_dataset = get_datasets(args)
     args.epoch = math.ceil(args.total_iter / args.iter_per_epoch)
     
@@ -126,7 +121,6 @@ def main(args):
     if args.resume:
         optimiser.load_state_dict(rets['optimiser'])
 
-    # scheduler = optim.lr_scheduler.CosineAnnealingLR(optimiser, args.iter_per_epoch, eta_min= args.lr * 0.001)
     scheduler = optim.lr_scheduler.StepLR(optimiser, step_size = 5, gamma = 0.9)
     for epoch in range(start_epoch, start_epoch + args.epoch):
         model.train()
@@ -139,14 +133,17 @@ def main(args):
             optimiser.zero_grad()
 
             labeled_outputs, _ = model(x_l)
+            # Class predictions, final layer activations as feature vector
             unlabeled_outputs, unlabeled_features = model(x_ul)
             pseudo_label = torch.softmax(unlabeled_outputs.detach(), dim=-1)
             max_probs, predicted_cls = torch.max(pseudo_label, dim = -1)
+            # Make all outputs lesser than threshold to -1, so that they can be filtered out
+            # later
             predicted_cls[max_probs.lt(args.threshold)] = -1
 
 
             unlabeled_weakly_augmented_outputs, unlabeled_weakly_augmented_features = model(xw_ul)
-            unlabeled_strongly_augmented_outputs, unlabeled_strongly_augmented_features = model(xs_wl)
+            unlabeled_strongly_augmented_outputs, _ = model(xs_wl)
 
             supervised_loss = ce_loss_obj(labeled_outputs, y_l)
             consistency_loss = get_consistency_loss(unlabeled_weakly_augmented_outputs, unlabeled_strongly_augmented_outputs, args.threshold)
@@ -155,8 +152,6 @@ def main(args):
             loss = supervised_loss + args.fixmatch_alpha * consistency_loss + args.contrastive_alpha * contrastive_loss
             loss.backward()
             optimiser.step()
-
-            # scheduler.step()
 
             writer.add_scalar('train/supervised_loss', supervised_loss.item(), epoch * args.iter_per_epoch + i)
             writer.add_scalar('train/consistency_loss', consistency_loss.item(), epoch * args.iter_per_epoch + i)
