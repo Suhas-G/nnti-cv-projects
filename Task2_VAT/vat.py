@@ -7,11 +7,15 @@ from torch.autograd import Variable
 
 class VATLoss(nn.Module):
     '''VAT Loss'''
-    def __init__(self, args):
+    def __init__(self, args, writer = None, mean = None, std = None):
         super(VATLoss, self).__init__()
         self.xi = args.vat_xi
         self.eps = args.vat_eps
         self.vat_iter = args.vat_iter
+        self.writer = writer
+        self.mean = mean
+        self.std = std
+        self.count = 0
 
     def l2_norm(self, arr: torch.tensor):
         '''Calculate L2 norm of batch of tensors'''
@@ -33,6 +37,16 @@ class VATLoss(nn.Module):
             model.zero_grad()
 
         r_adv = r * self.eps
-        pred_adv = F.log_softmax(model(x + r_adv), dim = 1)
+        x_adv = x + r_adv
+        if self.writer is not None:
+            self.plot_adversarial(x_adv.detach())
+        pred_adv = F.log_softmax(model(x_adv), dim = 1)
 
         return F.kl_div(pred_adv, pred, reduction='batchmean', log_target=True)
+
+    def plot_adversarial(self, images):
+        images[:, 0] = (images[:, 0] * self.std[0]) + self.mean[0]
+        images[:, 1] = (images[:, 1] * self.std[1]) + self.mean[1]
+        images[:, 2] = (images[:, 2] * self.std[2]) + self.mean[2]
+        self.writer.add_images('Adversarial Images', images, self.count)
+        self.count += 1

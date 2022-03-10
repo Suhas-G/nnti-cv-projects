@@ -14,7 +14,7 @@ torch.manual_seed(42)
 random.seed(42)
 np.random.seed(42)
 
-from dataloader import get_cifar10, get_cifar100
+from dataloader import get_cifar10, get_cifar100, cifar10_mean, cifar10_std, cifar100_mean, cifar100_std
 from model.wrn import WideResNet
 from utils import accuracy, load_checkpoint, save_checkpoint
 from vat import VATLoss
@@ -94,10 +94,14 @@ def main(args):
     '''Main train and test function'''
     if args.dataset == "cifar10":
         args.num_classes = 10
+        MEAN = cifar10_mean
+        STD = cifar10_std
         labeled_dataset, unlabeled_dataset, test_dataset = get_cifar10(args, 
                                                                 args.datapath)
     if args.dataset == "cifar100":
         args.num_classes = 100
+        MEAN = cifar100_mean
+        STD = cifar100_std
         labeled_dataset, unlabeled_dataset, test_dataset = get_cifar100(args, 
                                                                 args.datapath)
 

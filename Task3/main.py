@@ -17,22 +17,35 @@ torch.manual_seed(42)
 random.seed(42)
 np.random.seed(42)
 
-from dataloader import get_cifar10, get_cifar100
+from dataloader import get_cifar10, get_cifar100, cifar10_mean, cifar10_std, cifar100_mean, cifar100_std
 from model.wrn import WideResNet
 from utils import accuracy, load_checkpoint, save_checkpoint
 from loss import ContrastiveLoss, get_consistency_loss
 
 current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
 
+PLOT_AUGMENTATION = False
+
+def unnormalise(images, mean, std):
+    result = images.detach().clone()
+    result[:, 0] = (result[:, 0] * std[0]) + mean[0]
+    result[:, 1] = (result[:, 1] * std[1]) + mean[1]
+    result[:, 2] = (result[:, 2] * std[2]) + mean[2]
+    return result
+
 
 def get_datasets(args: argparse.Namespace):
     '''Helper function to create appropriate train, validation and test datasets'''
     if args.dataset == "cifar10":
         args.num_classes = 10
+        args.mean = cifar10_mean
+        args.std = cifar10_std
         labeled_dataset, unlabeled_dataset, validation_dataset, test_dataset = get_cifar10(args, 
                                                                 args.datapath)
     if args.dataset == "cifar100":
         args.num_classes = 100
+        args.mean = cifar100_mean
+        args.std = cifar100_std
         labeled_dataset, unlabeled_dataset, validation_dataset, test_dataset = get_cifar100(args, 
                                                                 args.datapath)
 
@@ -152,6 +165,11 @@ def main(args: argparse.Namespace):
             loss = supervised_loss + args.fixmatch_alpha * consistency_loss + args.contrastive_alpha * contrastive_loss
             loss.backward()
             optimiser.step()
+
+            if PLOT_AUGMENTATION:
+                writer.add_images('Unlabelled', unnormalise(x_ul, args.mean, args.std), epoch * args.iter_per_epoch + i)
+                writer.add_images('Weakly Augmented', unnormalise(xw_ul, args.mean, args.std), epoch * args.iter_per_epoch + i)
+                writer.add_images('Strongly Augmented', unnormalise(xs_wl, args.mean, args.std), epoch * args.iter_per_epoch + i)
 
             writer.add_scalar('train/supervised_loss', supervised_loss.item(), epoch * args.iter_per_epoch + i)
             writer.add_scalar('train/consistency_loss', consistency_loss.item(), epoch * args.iter_per_epoch + i)

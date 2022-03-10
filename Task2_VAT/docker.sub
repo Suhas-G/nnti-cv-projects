@@ -1,5 +1,6 @@
 universe                = docker
 docker_image            = dankazbek/nnti-2122-project
+arguments               = --num-labeled 4000 --total-iter 25600 --iter-per-epoch 512 --dataset cifar10 --train-labelled-batch 64 --train-unlabelled-batch 128 --vat-xi 1 --vat-eps 2 --vat-alpha .5 --vat-iter 1
 executable              = main.py
 output                  = out.$(ClusterId).$(ProcId).ckpt
 error                   = out.$(ClusterId).$(ProcId).err
