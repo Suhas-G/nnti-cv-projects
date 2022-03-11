@@ -1,11 +1,11 @@
 # NNTI computer vision project
-Name:  
-MatrikelNummer:  
-Email:  
+Name: Enam Biswas 
+MatrikelNummer: 7015620
+Email: enbi00001@stud.uni-saarland.de
   
-Name:  
-MatrikelNummer:  
-Email:  
+Name: Suhas Gopal
+MatrikelNummer: 7015448
+Email: sugo00001@stud.uni-saarland.de
 
 Submit the project report with this repository.
 Please go through the project instructions given in the pdf file
