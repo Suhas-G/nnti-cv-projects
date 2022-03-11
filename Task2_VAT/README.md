@@ -22,3 +22,26 @@ To print the accuracy, add `--debug` to any of the following commands
 4. CIFAR100, 10000 labels
 
 `python test.py --dataset cifar100 --num-labeled 10000 --model-path ./checkpoints/cifar100_10000/model.pth`
+
+
+## Training
+
+To reproduce the reported results please follow the following arguments.
+
+1. CIFAR10, 250 labels
+
+`python main.py --num-labeled 250 --total-iter 25600 --iter-per-epoch 512 --dataset cifar10 --train-labelled-batch 64 --train-unlabelled-batch 128 --vat-xi 1 --vat-eps 2 --vat-alpha 1 --vat-iter 1`
+
+2. CIFAR10, 4000 labels
+
+`python main.py --num-labeled 4000 --total-iter 25600 --iter-per-epoch 512 --dataset cifar10 --train-labelled-batch 64 --train-unlabelled-batch 128 --vat-xi 1 --vat-eps 2 --vat-alpha .5 --vat-iter 1`
+
+3. CIFAR100, 2500 labels
+
+`python main.py --num-labeled 2500 --total-iter 25600 --iter-per-epoch 512 --dataset cifar100 --train-labelled-batch 64 --train-unlabelled-batch 128 --vat-xi 1 --vat-eps 2.5 --vat-alpha .5 --vat-iter 1`
+
+4. CIFAR100, 10000 labels
+
+`python main.py --num-labeled 10000 --total-iter 25600 --iter-per-epoch 512 --dataset cifar100 --train-labelled-batch 64 --train-unlabelled-batch 128 --vat-xi 1 --vat-eps 2 --vat-alpha .5 --vat-iter 1`
+
+To run on condor, modify the `arguments` section of the provided [docker.sub](./docker.sub) file accordingly.

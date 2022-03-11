@@ -121,6 +121,8 @@ if __name__ == "__main__":
 
 
     parser.add_argument("--model-path", type=str, required=True)
+    parser.add_argument("--debug", action="store_true", 
+                        help="Prints accuracy")
     
     args = parser.parse_args()
 
@@ -129,14 +131,14 @@ if __name__ == "__main__":
         labeled_dataset, unlabeled_dataset, validation_dataset, test_dataset = get_cifar10(args, 
                                                                 args.datapath)
         # Test the model
-        output = test_cifar10(test_dataset, args.model_path, debug = True)
+        output = test_cifar10(test_dataset, args.model_path, debug = args.debug)
     if args.dataset == "cifar100":
         args.num_classes = 100
         labeled_dataset, unlabeled_dataset, validation_dataset, test_dataset = get_cifar100(args, 
                                                                 args.datapath)
 
         # Test the model
-        output = test_cifar100(test_dataset, args.model_path, debug = True)
+        output = test_cifar100(test_dataset, args.model_path, debug = args.debug)
 
     print('Output shape: ', output.shape)
 
